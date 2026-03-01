@@ -1,8 +1,5 @@
-export const onRequest: PagesFunction = async ({ request, env }) => {
+export const onRequest: PagesFunction = async ({ request }) => {
   const url = new URL(request.url);
-
-  // Rewrite to the dynamic template page
   url.pathname = "/campaigns/_/index.html";
-
-  return env.ASSETS.fetch(new Request(url.toString(), request));
+  return fetch(new Request(url.toString(), request));
 };

@@ -250,6 +250,12 @@ main{
   transform:translateY(-1px);
 }
 
+.small-note{
+  margin-top:10px;
+  font-size:12px;
+  color:rgba(255,255,255,.62);
+}
+
 /* ================= FOOTER ================= */
 
 footer{
@@ -287,7 +293,6 @@ footer{
   .nav-inner{ padding:14px 18px; }
   .cards{ grid-template-columns:1fr; }
 }
-
 </style>
 </head>
 
@@ -296,13 +301,16 @@ footer{
 <!-- NAV -->
 <nav>
   <div class="nav-inner">
+    <!-- Keep logo absolute to Play subdomain assets -->
     <a class="brand" href="https://astralforge.studio/">
       <img src="/assets/nav/Astral-Forge-nav.png" alt="Astral Forge">
       <span class="brand-text">Astral Forge</span>
     </a>
 
     <div class="nav-links">
+      <!-- On play subdomain, / is Play home -->
       <a href="/" aria-current="page">Play</a>
+      <a href="/campaigns/">Campaigns</a>
       <a href="https://codex.astralforge.studio" target="_blank" rel="noopener noreferrer">Codex</a>
       <a href="https://shop.astralforge.studio" target="_blank" rel="noopener noreferrer">Shop</a>
       <a href="https://astralforge.studio/about/" target="_blank" rel="noopener noreferrer">About</a>
@@ -328,17 +336,18 @@ footer{
 
 <!-- CONTENT -->
 <main>
-  <section class="section">
+  <section class="section" id="experiences">
     <h2>Available Experiences</h2>
 
     <div class="cards">
       <div class="card">
-        <h3>Open Campaigns</h3>
-        <p>New tables forming. Join a living world shaped by player decisions.</p>
-        <a class="button" href="https://astralforge.studio/contact/">Join Waitlist →</a>
+        <h3>View Campaigns</h3>
+        <p>Browse open tables, persistent worlds, and long-form stories built to endure.</p>
+        <a class="button" href="/campaigns/">View Campaigns →</a>
+        <div class="small-note">Takes you to play.astralforge.studio/campaigns</div>
       </div>
 
-      <div class="card">
+      <div class="card" id="private">
         <h3>Private Bookings</h3>
         <p>Custom-crafted sessions for private groups, events, and long-form campaigns.</p>
         <a class="button" href="https://astralforge.studio/contact/">Request Session →</a>

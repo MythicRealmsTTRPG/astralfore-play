@@ -94,6 +94,11 @@ nav{
   color:rgba(255,255,255,.95);
 }
 
+.nav-links a[aria-current="page"]{
+  background:rgba(255,255,255,.08);
+  color:rgba(255,255,255,.95);
+}
+
 .nav-links a.join{
   border:1px solid rgba(185,144,84,.55);
   background:linear-gradient(135deg, rgba(185,144,84,.18), rgba(0,0,0,.12));
@@ -291,17 +296,19 @@ footer{
 <!-- NAV -->
 <nav>
   <div class="nav-inner">
-    <a class="brand" href="https://astralforge.studio">
+    <a class="brand" href="https://astralforge.studio/">
       <img src="/assets/nav/Astral-Forge-nav.png" alt="Astral Forge">
       <span class="brand-text">Astral Forge</span>
     </a>
 
     <div class="nav-links">
       <a href="https://astralforge.studio/games/">Games</a>
-      <a href="https://codex.astralforge.studio">Codex</a>
-      <a href="https://shop.astralforge.studio">Shop</a>
-      <a href="https://astralforge.studio/about/">About</a>
-      <a class="join" href="https://astralforge.studio/join/">Join</a>
+      <a href="/" aria-current="page">Play</a>
+      <a href="https://codex.astralforge.studio" target="_blank" rel="noopener noreferrer">Codex</a>
+      <a href="https://shop.astralforge.studio" target="_blank" rel="noopener noreferrer">Shop</a>
+      <a href="https://astralforge.studio/about/" target="_blank" rel="noopener noreferrer">About</a>
+      <a href="https://astralforge.studio/contact/" target="_blank" rel="noopener noreferrer">Contact</a>
+      <a class="join" href="https://astralforge.studio/membership/" target="_blank" rel="noopener noreferrer">Join</a>
     </div>
   </div>
 </nav>
@@ -322,7 +329,6 @@ footer{
 
 <!-- CONTENT -->
 <main>
-
   <section class="section">
     <h2>Available Experiences</h2>
 
@@ -339,9 +345,7 @@ footer{
         <a class="button" href="https://astralforge.studio/contact/">Request Session →</a>
       </div>
     </div>
-
   </section>
-
 </main>
 
 <!-- FOOTER -->
@@ -349,9 +353,10 @@ footer{
   <div class="footer-inner">
     <div>© 2026 Astral Forge — Play</div>
     <div class="footer-links">
-      <a href="https://astralforge.studio/legal/privacy/">Privacy</a>
-      <a href="https://astralforge.studio/legal/terms/">Terms</a>
-      <a href="https://rootapp.gg/AC05WwIOhgqvSevEYNE_4Q" target="_blank" rel="noopener">Root</a>
+      <a href="https://astralforge.studio/contact/" target="_blank" rel="noopener noreferrer">Contact</a>
+      <a href="https://astralforge.studio/legal/privacy/" target="_blank" rel="noopener noreferrer">Privacy</a>
+      <a href="https://astralforge.studio/legal/terms/" target="_blank" rel="noopener noreferrer">Terms</a>
+      <a href="https://rootapp.gg/AC05WwIOhgqvSevEYNE_4Q" target="_blank" rel="noopener noreferrer">Root</a>
     </div>
   </div>
 </footer>

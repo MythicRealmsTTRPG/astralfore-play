@@ -297,6 +297,18 @@
     display:none;
   }
 
+  .statusbar{
+    max-width:1200px;
+    margin: 0 auto;
+    padding: 0 20px 8px;
+    color: rgba(255,255,255,.72);
+    font-size: 13px;
+    display:none;
+  }
+  .statusbar.show{ display:block; }
+  .statusbar a{ color: rgba(185,144,84,.95); text-decoration:none; }
+  .statusbar a:hover{ text-decoration:underline; }
+
   /* FOOTER */
   footer{
     background: rgba(0,0,0,.75);
@@ -345,10 +357,7 @@
     <div class="nav-links">
       <a href="/campaigns/" aria-current="page">Campaigns</a>
       <a href="/#private">Private Bookings</a>
-
-      <!-- Build Campaign -->
       <a class="cta" href="/campaigns/builder/">Build Campaign</a>
-
       <a class="cta" href="https://astralforge.studio/membership/" target="_blank" rel="noopener">Join</a>
     </div>
   </div>
@@ -399,6 +408,8 @@
   </div>
 </header>
 
+<div class="statusbar" id="statusbar"></div>
+
 <main class="stage">
   <div class="count-row">
     <div><span id="count">0</span> campaigns shown</div>
@@ -428,14 +439,16 @@
 </footer>
 
 <script>
-  // Replace these with your real campaigns. Pretty URLs (A) use /campaigns/<slug>/
-  const campaigns = [
-   
-  ];
+  // API endpoint that returns: { ok: true, campaigns: [...] }
+  // You confirmed this works at: https://astralforge.studio/api/v1/campaigns
+  const API_URL = "https://astralforge.studio/api/v1/campaigns";
+
+  let campaigns = [];
 
   const elGrid = document.getElementById("grid");
   const elCount = document.getElementById("count");
   const elEmpty = document.getElementById("empty");
+  const elStatus = document.getElementById("statusbar");
 
   const q = document.getElementById("q");
   const system = document.getElementById("system");
@@ -443,6 +456,15 @@
   const seats = document.getElementById("seats");
 
   function normalize(s){ return (s || "").toLowerCase(); }
+
+  function safeJsonParse(s, fallback){
+    try { return JSON.parse(s); } catch { return fallback; }
+  }
+
+  function showStatus(html){
+    elStatus.innerHTML = html || "";
+    elStatus.classList.toggle("show", !!html);
+  }
 
   function render(list){
     elGrid.innerHTML = "";
@@ -469,28 +491,31 @@
 
       const meta = document.createElement("div");
       meta.className = "meta";
+
+      const when = (c.day && c.time) ? `${c.day} • ${c.time}` : (c.day || c.time || "Schedule TBD");
+
       meta.innerHTML = `
-        <span class="pill">${c.system}</span>
-        <span class="pill">${c.day} • ${c.time}</span>
+        <span class="pill">${c.system || "Other"}</span>
+        <span class="pill">${when}</span>
         <span class="pill gold">${c.mode === "open" ? "Open Seats" : "Full / Waitlist"}</span>
       `;
       body.appendChild(meta);
 
       const title = document.createElement("h3");
       title.className = "title";
-      title.textContent = c.title;
+      title.textContent = c.title || c.slug;
       body.appendChild(title);
 
       const desc = document.createElement("p");
       desc.className = "desc";
-      desc.textContent = c.blurb;
+      desc.textContent = c.blurb || c.hook || "";
       body.appendChild(desc);
 
       const row = document.createElement("div");
       row.className = "row";
       row.innerHTML = `
-        <div><strong>${c.seatsOpen}</strong> seats</div>
-        <div><strong>${c.price}</strong></div>
+        <div><strong>${Number(c.seatsOpen || 0)}</strong> seats</div>
+        <div><strong>${c.price || ""}</strong></div>
       `;
       body.appendChild(row);
 
@@ -516,8 +541,8 @@
     const filtered = campaigns.filter(c => {
       const hay = normalize([c.title, c.system, c.day, c.time, c.tone, c.blurb, ...(c.tags||[])].join(" "));
       if (qv && !hay.includes(qv)) return false;
-      if (sys && c.system !== sys) return false;
-      if (dv && c.day !== dv) return false;
+      if (sys && (c.system || "") !== sys) return false;
+      if (dv && (c.day || "") !== dv) return false;
       if (sv === "open" && c.mode !== "open") return false;
       if (sv === "full" && c.mode !== "full") return false;
       return true;
@@ -526,8 +551,59 @@
     render(filtered);
   }
 
+  async function loadCampaigns(){
+    showStatus('Loading campaigns…');
+    try{
+      const res = await fetch(API_URL, { cache: "no-store" });
+
+      if (!res.ok){
+        showStatus(`Campaign API error (${res.status}). Check <a href="${API_URL}" target="_blank" rel="noopener">API</a>.`);
+        campaigns = [];
+        applyFilters();
+        return;
+      }
+
+      const data = await res.json();
+      if (!data || data.ok !== true){
+        showStatus(`Campaign API returned unexpected JSON. Check <a href="${API_URL}" target="_blank" rel="noopener">API</a>.`);
+        campaigns = [];
+        applyFilters();
+        return;
+      }
+
+      campaigns = (data.campaigns || []).map(c => ({
+        slug: c.slug,
+        title: c.title,
+        system: c.system || "Other",
+        day: c.day || "",
+        time: c.time || "",
+        mode: (c.mode || "open"), // "open" or "full"
+        seatsOpen: Number(c.seats_open ?? c.seatsOpen ?? 0),
+        seatsTotal: Number(c.seats_total ?? c.seatsTotal ?? 0),
+        price: c.price || "",
+        thumb: c.thumb || "",
+        hook: c.hook || "",
+        blurb: c.blurb || c.hook || "",
+        tags: c.tags_json ? safeJsonParse(c.tags_json, []) : (c.tags || []),
+        tone: c.tone || "",
+        detailsUrl: `/campaigns/${c.slug}/`,
+        updatedAt: c.updated_at || ""
+      }));
+
+      showStatus("");
+      applyFilters();
+    } catch (err){
+      console.error(err);
+      showStatus(`Could not load campaigns. (Network / CORS?) Check <a href="${API_URL}" target="_blank" rel="noopener">API</a>.`);
+      campaigns = [];
+      applyFilters();
+    }
+  }
+
   [q, system, day, seats].forEach(x => x.addEventListener("input", applyFilters));
-  render(campaigns);
+
+  // Initial load
+  loadCampaigns();
 </script>
 
 </body>

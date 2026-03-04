@@ -16,6 +16,7 @@
     --panel:rgba(0,0,0,.28);
     --panel2:rgba(0,0,0,.38);
     --gold:#b99054;
+    --shadow:rgba(0,0,0,.65);
   }
 
   *{ box-sizing:border-box; }
@@ -26,6 +27,7 @@
     color: var(--text);
   }
 
+  /* NAV */
   nav{
     position:fixed;
     top:0; left:0; right:0;
@@ -89,8 +91,9 @@
     transform: translateY(-1px);
   }
 
+  /* HERO */
   .hero{
-    padding-top: 86px;
+    padding-top: 86px; /* nav offset */
     background:
       radial-gradient(1200px 600px at 20% 10%, rgba(185,144,84,.08), transparent 55%),
       radial-gradient(900px 500px at 85% 0%, rgba(255,255,255,.05), transparent 60%),
@@ -123,6 +126,7 @@
     font-size: 16px;
   }
 
+  /* CONTROLS */
   .controls{
     max-width: 1200px;
     margin: 0 auto;
@@ -157,6 +161,7 @@
   input[type="search"]::placeholder{ color: rgba(255,255,255,.45); }
   select{ cursor:pointer; }
 
+  /* LIST */
   .stage{
     max-width: 1200px;
     margin: 0 auto;
@@ -244,7 +249,6 @@
     color: rgba(255,255,255,.76);
     line-height: 1.65;
     font-size: 14px;
-    white-space: pre-line;
   }
 
   .row{
@@ -293,6 +297,19 @@
     display:none;
   }
 
+  .notice{
+    background: rgba(0,0,0,.35);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px;
+    padding: 12px 14px;
+    color: rgba(255,255,255,.78);
+    display:none;
+    margin: 0 0 14px;
+    line-height: 1.6;
+  }
+  .notice code{ color: rgba(255,255,255,.92); }
+
+  /* FOOTER */
   footer{
     background: rgba(0,0,0,.75);
     border-top: 1px solid var(--border);
@@ -366,10 +383,10 @@
       <select id="system">
         <option value="">Any</option>
         <option>D&amp;D 5e</option>
-        <option>Dungeons and Dragons 3/3.5</option>
         <option>Pathfinder 2e</option>
         <option>Call of Cthulhu</option>
         <option>Walking Dead</option>
+        <option>Dungeons and Dragons 3/3.5</option>
         <option>OSR</option>
         <option>Fallout</option>
         <option>Cyberpunk RED</option>
@@ -397,9 +414,10 @@
 </header>
 
 <main class="stage">
+  <div class="notice" id="notice"></div>
+
   <div class="count-row">
     <div><span id="count">0</span> campaigns shown</div>
-    <div style="opacity:.8;">Tip: add thumbnails in <code>/assets/campaigns/</code></div>
   </div>
 
   <section class="grid" id="grid" aria-label="Campaign list"></section>
@@ -421,12 +439,16 @@
 </footer>
 
 <script>
-  // Public Play site pulls from your API:
-  const API_URL = "https://astralforge.studio/api/v1/campaigns";
+  // Public Play site pulls campaigns from your API.
+  // This matches what you tested in the browser:
+  //   https://astralforge.studio/api/api/v1/campaigns
+  const API_BASE = "https://astralforge.studio/api";
+  const LIST_ENDPOINT = `${API_BASE}/api/v1/campaigns`;
 
   const elGrid = document.getElementById("grid");
   const elCount = document.getElementById("count");
   const elEmpty = document.getElementById("empty");
+  const elNotice = document.getElementById("notice");
 
   const q = document.getElementById("q");
   const system = document.getElementById("system");
@@ -436,11 +458,89 @@
   let campaigns = [];
 
   function normalize(s){ return (s || "").toLowerCase(); }
+  function asText(v){ return (v == null) ? "" : String(v); }
+  function toInt(v, fallback=0){
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
 
-  function seatModeFromCounts(open, total){
-    // If total is set, use it; otherwise fall back to open
-    if (typeof total === "number" && total > 0) return open > 0 ? "open" : "full";
-    return open > 0 ? "open" : "full";
+  function isPublishedLike(c){
+    // You can tune this to your exact statuses.
+    // Common ones: "live", "published", "active"
+    const st = normalize(c.status);
+    if (!st) return true; // if API doesn’t send status, show it
+    return st !== "draft" && st !== "archived" && st !== "deleted";
+  }
+
+  function mapFromApi(row){
+    const seatsOpen = toInt(row.seats_open, 0);
+    const seatsTotal = toInt(row.seats_total, 0);
+
+    const mode =
+      (normalize(row.mode) === "full" || (seatsTotal > 0 && seatsOpen <= 0))
+        ? "full"
+        : "open";
+
+    // If your API returns thumb as filename, you can normalize here.
+    // If it returns full URL, it will work as-is.
+    const thumb = asText(row.thumb);
+
+    return {
+      slug: asText(row.slug),
+      title: asText(row.title),
+      status: asText(row.status),
+      system: asText(row.system),
+      day: asText(row.day),
+      time: asText(row.time),
+      mode,
+      seatsOpen,
+      seatsTotal,
+      price: asText(row.price),
+      thumb,
+      hook: asText(row.hook),
+      blurb: asText(row.blurb || row.hook || ""),
+      tags: (() => {
+        try { return JSON.parse(row.tags_json || "[]"); } catch { return []; }
+      })(),
+      updatedAt: asText(row.updated_at),
+      // IMPORTANT: this is the “adventure page” URL
+      detailsUrl: `/campaigns/${asText(row.slug)}/`
+    };
+  }
+
+  async function loadCampaigns(){
+    elNotice.style.display = "none";
+    try{
+      const res = await fetch(LIST_ENDPOINT, {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      });
+
+      if (!res.ok){
+        const txt = await res.text().catch(()=> "");
+        throw new Error(`API ${res.status}: ${txt.slice(0, 200)}`);
+      }
+
+      const data = await res.json();
+      const list = Array.isArray(data.campaigns) ? data.campaigns : [];
+
+      campaigns = list
+        .map(mapFromApi)
+        .filter(c => c.slug && c.title)
+        .filter(isPublishedLike);
+
+      applyFilters();
+    } catch (err){
+      console.error(err);
+      campaigns = [];
+      render([]);
+      elNotice.style.display = "block";
+      elNotice.innerHTML = `
+        <strong>Couldn’t load campaigns.</strong><br/>
+        Check that <code>${LIST_ENDPOINT}</code> is reachable from the Play site and returns JSON.<br/>
+        <span style="opacity:.85">${asText(err.message)}</span>
+      `;
+    }
   }
 
   function render(list){
@@ -449,7 +549,7 @@
     elEmpty.style.display = list.length ? "none" : "block";
 
     for (const c of list){
-      const detailsHref = `/campaigns/${c.slug}/`;
+      const detailsHref = c.detailsUrl || `/campaigns/${c.slug}/`;
 
       const card = document.createElement("article");
       card.className = "card";
@@ -468,28 +568,26 @@
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.innerHTML = `
-        <span class="pill">${c.system || "—"}</span>
-        <span class="pill">${(c.day || "—")} • ${(c.time || "—")}</span>
+        <span class="pill">${c.system || "System TBA"}</span>
+        <span class="pill">${(c.day || "Day TBA")} • ${(c.time || "Time TBA")}</span>
         <span class="pill gold">${c.mode === "open" ? "Open Seats" : "Full / Waitlist"}</span>
       `;
       body.appendChild(meta);
 
       const title = document.createElement("h3");
       title.className = "title";
-      title.textContent = c.title || c.slug;
+      title.textContent = c.title;
       body.appendChild(title);
 
       const desc = document.createElement("p");
       desc.className = "desc";
-      desc.textContent = c.blurb || c.hook || "";
+      desc.textContent = c.blurb || "Details coming soon.";
       body.appendChild(desc);
 
       const row = document.createElement("div");
       row.className = "row";
-      const open = Number(c.seatsOpen ?? 0);
-      const total = Number(c.seatsTotal ?? 0);
       row.innerHTML = `
-        <div><strong>${open}${total ? `/${total}` : ""}</strong> seats</div>
+        <div><strong>${c.seatsOpen}</strong> open</div>
         <div><strong>${c.price || ""}</strong></div>
       `;
       body.appendChild(row);
@@ -514,7 +612,7 @@
     const sv = seats.value;
 
     const filtered = campaigns.filter(c => {
-      const hay = normalize([c.title, c.system, c.day, c.time, c.blurb, c.hook, ...(c.tags||[])].join(" "));
+      const hay = normalize([c.title, c.system, c.day, c.time, c.hook, c.blurb, ...(c.tags||[])].join(" "));
       if (qv && !hay.includes(qv)) return false;
       if (sys && c.system !== sys) return false;
       if (dv && c.day !== dv) return false;
@@ -524,49 +622,6 @@
     });
 
     render(filtered);
-  }
-
-  async function loadCampaigns(){
-    try{
-      const res = await fetch(API_URL, { method: "GET" });
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
-      const rows = Array.isArray(data.campaigns) ? data.campaigns : [];
-
-      // Map API fields -> UI fields
-      campaigns = rows.map(r => {
-        const seatsOpen = Number(r.seats_open ?? 0);
-        const seatsTotal = Number(r.seats_total ?? 0);
-        const mode = r.mode || seatModeFromCounts(seatsOpen, seatsTotal);
-
-        // tags_json may be JSON string
-        let tags = [];
-        try { tags = r.tags_json ? JSON.parse(r.tags_json) : []; } catch {}
-
-        return {
-          slug: r.slug,
-          title: r.title,
-          system: r.system || "",
-          day: r.day || "",
-          time: r.time || "",
-          price: r.price || "",
-          thumb: r.thumb || "",
-          hook: r.hook || "",
-          blurb: r.blurb || "",
-          tags,
-          seatsOpen,
-          seatsTotal,
-          mode,
-          updatedAt: r.updated_at || ""
-        };
-      });
-
-      applyFilters();
-    } catch (e){
-      console.error(e);
-      campaigns = [];
-      applyFilters();
-    }
   }
 
   [q, system, day, seats].forEach(x => x.addEventListener("input", applyFilters));

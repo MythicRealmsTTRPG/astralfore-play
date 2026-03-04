@@ -91,7 +91,7 @@
   }
 
   .hero{
-    padding-top: 86px;
+    padding-top: 86px; /* nav offset */
     background:
       radial-gradient(1200px 600px at 20% 10%, rgba(185,144,84,.08), transparent 55%),
       radial-gradient(900px 500px at 85% 0%, rgba(255,255,255,.05), transparent 60%),
@@ -163,6 +163,18 @@
     margin: 0 auto;
     padding: 14px 20px 70px;
   }
+
+  .notice{
+    background: rgba(0,0,0,.35);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px;
+    padding: 12px 14px;
+    color: rgba(255,255,255,.78);
+    display:none;
+    margin: 0 0 14px;
+    line-height: 1.6;
+  }
+  .notice code{ color: rgba(255,255,255,.92); }
 
   .count-row{
     display:flex;
@@ -245,6 +257,7 @@
     color: rgba(255,255,255,.76);
     line-height: 1.65;
     font-size: 14px;
+    white-space: pre-line;
   }
 
   .row{
@@ -290,16 +303,6 @@
     padding: 22px;
     color: rgba(255,255,255,.75);
     line-height: 1.7;
-    display:none;
-  }
-
-  .notice{
-    background: rgba(0,0,0,.35);
-    border: 1px solid rgba(255,255,255,.12);
-    border-radius: 14px;
-    padding: 12px 14px;
-    margin: 10px 0 18px;
-    color: rgba(255,255,255,.78);
     display:none;
   }
 
@@ -360,8 +363,7 @@
     <div class="kicker">Find a table</div>
     <h1>View Campaigns</h1>
     <p class="sub">
-      Browse living campaigns and limited-seat tables. Each game is built for continuity:
-      your choices echo, the world remembers, and the story carries forward.
+      Browse living campaigns and limited-seat tables. Search by system, day, or vibe.
     </p>
   </div>
 
@@ -376,10 +378,10 @@
       <select id="system">
         <option value="">Any</option>
         <option>D&amp;D 5e</option>
+        <option>Dungeons and Dragons 3/3.5</option>
         <option>Pathfinder 2e</option>
         <option>Call of Cthulhu</option>
         <option>Walking Dead</option>
-        <option>Dungeons and Dragons 3/3.5</option>
         <option>OSR</option>
         <option>Fallout</option>
         <option>Cyberpunk RED</option>
@@ -417,7 +419,7 @@
   <section class="grid" id="grid" aria-label="Campaign list"></section>
 
   <div class="empty" id="empty">
-    No campaigns match those filters. Try clearing “System” or “Day”, or search for a vibe (e.g. “beginner”, “political intrigue”, “horror”).
+    No campaigns match those filters. Try clearing filters or searching for a vibe (e.g. “beginner”, “political intrigue”, “horror”).
   </div>
 </main>
 
@@ -434,15 +436,13 @@
 
 <script>
   // ===== CONFIG =====
-  // Public campaigns API lives on your Worker, not astralforge.studio.
-  const API_BASE =
-    (localStorage.getItem("af_api_base_public") || "https://astralforge-api.scalescribe-mythicrealms.workers.dev")
-      .replace(/\/+$/, "");
+  // You said the working public endpoint is:
+  //   https://astralforge.studio/api/api/v1/campaigns
+  // So base is "https://astralforge.studio/api" and then "/api/v1/campaigns".
+  const API_BASE = "https://astralforge.studio/api".replace(/\/+$/, "");
   const LIST_ENDPOINT = `${API_BASE}/api/v1/campaigns`;
 
-  // ===== STATE =====
-  let campaigns = [];
-
+  // ===== ELEMENTS =====
   const elGrid = document.getElementById("grid");
   const elCount = document.getElementById("count");
   const elEmpty = document.getElementById("empty");
@@ -453,35 +453,89 @@
   const day = document.getElementById("day");
   const seats = document.getElementById("seats");
 
-  function normalize(s){ return (s || "").toLowerCase(); }
+  // ===== STATE =====
+  let campaigns = [];
 
-  function showNotice(msg){
-    elNotice.textContent = msg;
+  function normalize(s){ return (s || "").toLowerCase(); }
+  function asText(v){ return (v == null) ? "" : String(v); }
+  function toInt(v, fallback=0){ const n = Number(v); return Number.isFinite(n) ? n : fallback; }
+
+  function showNotice(html){
+    elNotice.innerHTML = html;
     elNotice.style.display = "block";
   }
-
   function hideNotice(){
-    elNotice.textContent = "";
+    elNotice.innerHTML = "";
     elNotice.style.display = "none";
   }
 
-  function seatNums(c){
-    const open = Number(c.seats_open ?? c.seatsOpen ?? c.booking?.seatsOpen ?? 0);
-    const total = Number(c.seats_total ?? c.seatsTotal ?? c.booking?.seatsTotal ?? 0);
-    return { open: Number.isFinite(open) ? open : 0, total: Number.isFinite(total) ? total : 0 };
+  function isPublishedLike(row){
+    const st = normalize(row.status);
+    if (!st) return true; // if API doesn’t send status, show it
+    return st !== "draft" && st !== "archived" && st !== "deleted";
   }
 
-  function seatMode(c){
-    const { open, total } = seatNums(c);
+  function seatModeFromCounts(open, total){
+    // If total is known, full = no open seats.
+    if (total > 0) return open > 0 ? "open" : "full";
+    // If total unknown, be conservative (don’t advertise open seats unless open > 0).
+    return open > 0 ? "open" : "full";
+  }
 
-    // If we know totals, "full" means no open seats.
-    if (total > 0) return (open > 0) ? "open" : "full";
+  function parseTags(row){
+    try{
+      const raw = row.tags_json ?? row.tags ?? "[]";
+      return Array.isArray(raw) ? raw : JSON.parse(raw);
+    }catch{
+      return [];
+    }
+  }
 
-    // If totals are missing but open seats is known and > 0, treat as open.
-    if (open > 0) return "open";
+  function mapFromApi(row){
+    const seatsOpen = toInt(row.seats_open ?? row.seatsOpen ?? row.booking?.seatsOpen, 0);
+    const seatsTotal = toInt(row.seats_total ?? row.seatsTotal ?? row.booking?.seatsTotal, 0);
 
-    // Default conservative: treat unknown/0 as full so you don't advertise seats incorrectly.
-    return "full";
+    const mode =
+      (normalize(row.mode) === "full" || normalize(row.mode) === "waitlist")
+        ? "full"
+        : seatModeFromCounts(seatsOpen, seatsTotal);
+
+    const slug = asText(row.slug || row.data_json?.slug || "");
+    const title = asText(row.title || row.data_json?.basic?.title || slug);
+    const hook = asText(row.hook || row.blurb || row.description || row.data_json?.basic?.hook || "");
+
+    const sys = asText(row.system || row.data_json?.basic?.system || "");
+    const schedule = asText(row.schedule || row.data_json?.booking?.schedule || "");
+    const dayText = asText(row.day || (schedule.split("•")[0] || "").trim() || "");
+    const timeText = asText(row.time || (schedule.split("•")[1] || "").trim() || "");
+
+    const price = asText(row.price || row.data_json?.pricing?.price || "");
+    const thumb = asText(
+      row.thumb ||
+      row.image?.path ||
+      row.data_json?.image?.path ||
+      row.data_json?.seo?.image ||
+      ""
+    );
+
+    return {
+      slug,
+      title,
+      status: asText(row.status),
+      system: sys,
+      day: dayText,
+      time: timeText,
+      mode,
+      seatsOpen,
+      seatsTotal,
+      price,
+      thumb,
+      hook,
+      blurb: asText(row.blurb || hook),
+      tags: parseTags(row),
+      updatedAt: asText(row.updated_at || row.updatedAt || ""),
+      detailsUrl: `/campaigns/${encodeURIComponent(slug)}/`,
+    };
   }
 
   function render(list){
@@ -490,77 +544,53 @@
     elEmpty.style.display = list.length ? "none" : "block";
 
     for (const c of list){
-      const slug = c.slug || c.data_json?.slug || "";
-      if (!slug) continue;
-
-      const detailsHref = `/campaigns/${encodeURIComponent(slug)}/`;
-
-      const { open, total } = seatNums(c);
-      const mode = seatMode(c);
-
       const card = document.createElement("article");
       card.className = "card";
 
       const thumb = document.createElement("div");
       thumb.className = "thumb";
-
-      const thumbUrl =
-        c.thumb ||
-        c.image?.path ||
-        c.data_json?.image?.path ||
-        c.data_json?.seo?.image ||
-        "";
-
-      if (thumbUrl) {
+      if (c.thumb) {
         thumb.style.backgroundImage =
-          `radial-gradient(circle at 25% 20%, rgba(255,255,255,.08), rgba(0,0,0,.65)), url("${thumbUrl}")`;
+          `radial-gradient(circle at 25% 20%, rgba(255,255,255,.08), rgba(0,0,0,.65)), url("${c.thumb}")`;
       }
       card.appendChild(thumb);
 
       const body = document.createElement("div");
       body.className = "body";
 
-      const sys = c.system || c.data_json?.basic?.system || "—";
-      const dayText = c.day || "—";
-      const timeText = c.time || "—";
-      const priceText = c.price || c.data_json?.pricing?.price || "—";
-
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.innerHTML = `
-        <span class="pill">${sys}</span>
-        <span class="pill">${dayText} • ${timeText}</span>
-        <span class="pill gold">${mode === "open" ? "Open Seats" : "Full / Waitlist"}</span>
+        <span class="pill">${c.system || "System TBA"}</span>
+        <span class="pill">${(c.day || "Day TBA")} • ${(c.time || "Time TBA")}</span>
+        <span class="pill gold">${c.mode === "open" ? "Open Seats" : "Full / Waitlist"}</span>
       `;
       body.appendChild(meta);
 
       const title = document.createElement("h3");
       title.className = "title";
-      title.textContent = c.title || c.data_json?.basic?.title || slug;
+      title.textContent = c.title;
       body.appendChild(title);
 
       const desc = document.createElement("p");
       desc.className = "desc";
-      desc.textContent =
-        c.blurb ||
-        c.hook ||
-        c.description ||
-        c.data_json?.basic?.hook ||
-        "";
+      desc.textContent = c.blurb || "Details coming soon.";
       body.appendChild(desc);
 
       const row = document.createElement("div");
       row.className = "row";
+      const open = toInt(c.seatsOpen, 0);
+      const total = toInt(c.seatsTotal, 0);
       row.innerHTML = `
-        <div><strong>${open}</strong> / ${total || "—"} seats</div>
-        <div><strong>${priceText}</strong></div>
+        <div><strong>${open}</strong>${total ? ` / ${total}` : ""} seats</div>
+        <div><strong>${c.price || "—"}</strong></div>
       `;
       body.appendChild(row);
 
       const actions = document.createElement("div");
       actions.className = "actions";
       actions.innerHTML = `
-        <a class="btn" href="${detailsHref}">View</a>
+        <a class="btn" href="${c.detailsUrl}">View</a>
         <a class="btn primary" href="https://astralforge.studio/contact/" target="_blank" rel="noopener">Request</a>
       `;
       body.appendChild(actions);
@@ -577,44 +607,30 @@
     const sv = seats.value;
 
     const filtered = campaigns.filter(c => {
-      const hay = normalize([
-        c.title, c.system, c.day, c.time, c.hook, c.blurb, c.slug,
-        c.data_json?.basic?.title, c.data_json?.basic?.system, c.data_json?.basic?.hook
-      ].join(" "));
-
+      const hay = normalize([c.title, c.system, c.day, c.time, c.hook, c.blurb, ...(c.tags||[])].join(" "));
       if (qv && !hay.includes(qv)) return false;
-
-      const sysVal = c.system || c.data_json?.basic?.system || "";
-      if (sys && sysVal !== sys) return false;
-
-      const dayVal = c.day || "";
-      if (dv && dayVal !== dv) return false;
-
-      const mode = seatMode(c);
-      if (sv === "open" && mode !== "open") return false;
-      if (sv === "full" && mode !== "full") return false;
-
+      if (sys && c.system !== sys) return false;
+      if (dv && c.day !== dv) return false;
+      if (sv === "open" && c.mode !== "open") return false;
+      if (sv === "full" && c.mode !== "full") return false;
       return true;
     });
 
-    // Nice default: open seats first.
-    filtered.sort((a,b) => {
-      const am = seatMode(a), bm = seatMode(b);
-      if (am === bm) return 0;
-      return am === "open" ? -1 : 1;
-    });
+    // Open seats first
+    filtered.sort((a,b) => (a.mode === b.mode) ? 0 : (a.mode === "open" ? -1 : 1));
 
     render(filtered);
   }
 
-  async function load(){
+  async function loadCampaigns(){
+    hideNotice();
     try{
-      hideNotice();
-      const res = await fetch(LIST_ENDPOINT, { method: "GET" });
+      const res = await fetch(LIST_ENDPOINT, { method: "GET", headers: { "Accept": "application/json" } });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || data.ok === false){
-        throw new Error(data.error || `HTTP ${res.status}`);
+        const errMsg = (data && data.error) ? data.error : `HTTP ${res.status}`;
+        throw new Error(errMsg);
       }
 
       const list =
@@ -624,22 +640,26 @@
         Array.isArray(data) ? data :
         [];
 
-      // Only show live/published on public site.
-      campaigns = list.filter(c => {
-        const s = String(c.status || "").toLowerCase();
-        return s === "live" || s === "published";
-      });
+      campaigns = list
+        .filter(isPublishedLike)
+        .map(mapFromApi)
+        .filter(c => c.slug && c.title);
 
       applyFilters();
     }catch(err){
-      showNotice(`Couldn’t load campaigns right now. (${String(err.message || err)})`);
+      console.error(err);
       campaigns = [];
-      applyFilters();
+      render([]);
+      showNotice(
+        `<strong>Couldn’t load campaigns.</strong><br/>
+         Check that <code>${LIST_ENDPOINT}</code> is reachable and returns JSON.<br/>
+         <span style="opacity:.85">${asText(err.message)}</span>`
+      );
     }
   }
 
   [q, system, day, seats].forEach(x => x.addEventListener("input", applyFilters));
-  load();
+  loadCampaigns();
 </script>
 
 </body>

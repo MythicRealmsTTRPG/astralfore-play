@@ -436,9 +436,6 @@
 
 <script>
   // ===== CONFIG =====
-  // You said the working public endpoint is:
-  //   https://astralforge.studio/api/api/v1/campaigns
-  // So base is "https://astralforge.studio/api" and then "/api/v1/campaigns".
   const API_BASE = "https://astralforge.studio/api".replace(/\/+$/, "");
   const LIST_ENDPOINT = `${API_BASE}/api/v1/campaigns`;
 
@@ -471,14 +468,12 @@
 
   function isPublishedLike(row){
     const st = normalize(row.status);
-    if (!st) return true; // if API doesn’t send status, show it
+    if (!st) return true;
     return st !== "draft" && st !== "archived" && st !== "deleted";
   }
 
   function seatModeFromCounts(open, total){
-    // If total is known, full = no open seats.
     if (total > 0) return open > 0 ? "open" : "full";
-    // If total unknown, be conservative (don’t advertise open seats unless open > 0).
     return open > 0 ? "open" : "full";
   }
 
@@ -491,6 +486,19 @@
     }
   }
 
+  // ✅ Fix: prevent placeholder/bad slugs from generating /campaigns/campaign/
+  function isValidSlug(slug){
+    const s = asText(slug).trim();
+    if (!s) return false;
+
+    const lowered = s.toLowerCase();
+    const blocked = new Set(["campaign", "campaigns", "index", "home", "null", "undefined"]);
+    if (blocked.has(lowered)) return false;
+
+    // typical slug charset (adjust if you need underscores)
+    return /^[a-z0-9][a-z0-9-]{1,}$/i.test(s);
+  }
+
   function mapFromApi(row){
     const seatsOpen = toInt(row.seats_open ?? row.seatsOpen ?? row.booking?.seatsOpen, 0);
     const seatsTotal = toInt(row.seats_total ?? row.seatsTotal ?? row.booking?.seatsTotal, 0);
@@ -500,8 +508,11 @@
         ? "full"
         : seatModeFromCounts(seatsOpen, seatsTotal);
 
-    const slug = asText(row.slug || row.data_json?.slug || "");
-    const title = asText(row.title || row.data_json?.basic?.title || slug);
+    const slugRaw = asText(row.slug || row.data_json?.slug || "");
+    const slug = slugRaw.trim();
+    const slugValid = isValidSlug(slug);
+
+    const title = asText(row.title || row.data_json?.basic?.title || slug || "Untitled Campaign");
     const hook = asText(row.hook || row.blurb || row.description || row.data_json?.basic?.hook || "");
 
     const sys = asText(row.system || row.data_json?.basic?.system || "");
@@ -520,6 +531,7 @@
 
     return {
       slug,
+      slugValid,
       title,
       status: asText(row.status),
       system: sys,
@@ -534,7 +546,9 @@
       blurb: asText(row.blurb || hook),
       tags: parseTags(row),
       updatedAt: asText(row.updated_at || row.updatedAt || ""),
-      detailsUrl: `/campaigns/${encodeURIComponent(slug)}/`,
+
+      // only generate details URL when slug is valid
+      detailsUrl: slugValid ? `/campaigns/${encodeURIComponent(slug)}/` : "",
     };
   }
 
@@ -589,8 +603,14 @@
 
       const actions = document.createElement("div");
       actions.className = "actions";
+
+      // ✅ If slug is invalid, don't send people to /campaigns/campaign/
+      const viewHref = c.slugValid ? c.detailsUrl : "https://astralforge.studio/contact/";
+      const viewText = c.slugValid ? "View" : "Request Info";
+      const viewAttrs = c.slugValid ? "" : 'target="_blank" rel="noopener"';
+
       actions.innerHTML = `
-        <a class="btn" href="${c.detailsUrl}">View</a>
+        <a class="btn" href="${viewHref}" ${viewAttrs}>${viewText}</a>
         <a class="btn primary" href="https://astralforge.studio/contact/" target="_blank" rel="noopener">Request</a>
       `;
       body.appendChild(actions);
@@ -616,9 +636,7 @@
       return true;
     });
 
-    // Open seats first
     filtered.sort((a,b) => (a.mode === b.mode) ? 0 : (a.mode === "open" ? -1 : 1));
-
     render(filtered);
   }
 
@@ -643,7 +661,15 @@
       campaigns = list
         .filter(isPublishedLike)
         .map(mapFromApi)
-        .filter(c => c.slug && c.title);
+        .filter(c => c.title); // keep even if slug is missing (we handle it)
+
+      const bad = campaigns.filter(c => !c.slugValid);
+      if (bad.length){
+        showNotice(
+          `<strong>Note:</strong> ${bad.length} campaign(s) don’t have a valid <code>slug</code> yet.
+           Their “View” button will go to Contact until slugs are fixed in the API.`
+        );
+      }
 
       applyFilters();
     }catch(err){
